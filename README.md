@@ -41,7 +41,7 @@ if (length(packages_to_install) > 0) {
 
 ## Running the App
 
-1. Clone the repository: `git clone https://github.com/your-username/bubbleapp.git`
+1. Clone the repository: `git clone https://github.com/your-username/bubbleapp.git` or download bubbleapp.R
 2. Open R or RStudio.
 3. Run the following command to launch the app:
 
