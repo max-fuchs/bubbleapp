@@ -28,6 +28,12 @@ ui <- fluidPage(
                  selectInput("y_axis_text_face", "Y-Axis Text Face",
                              choices = c("plain","italic","bold","bold.italic")),
                  numericInput("top_n", "Top N Terms to Display:", value = 15, min = 1),
+                 selectInput("plot_type", "Plot Type:", choices = c("Bubble Plot", "Bar Plot")), # Auswahl des Plot-Typs
+                 conditionalPanel(
+                   condition = "input.plot_type == 'Bar Plot'",
+                   selectInput("bar_plot_metric", "Metric for Bar Plot:", 
+                               choices = c("Intersection Size", "Gene Ratio")) # Auswahl der Metrik
+                 ),
                  radioButtons("paper_size", "Paper Size:", choices = c("A4", "A5")),
                  radioButtons("orientation", "Orientation:", choices = c("Portrait", "Landscape")),
                  colorPickr("low_color", "Select Low Color:", selected = "#1E90FF"),  
@@ -65,27 +71,50 @@ server <- function(input, output) {
       stop("The data must contain either 'adjusted_p_value' or 'p_value' column.")
     }
     
-    # Data manipulation as per your code
+    # Data manipulation
     res$term_name <- str_to_sentence(res$term_name)
     res$GeneRatio <- res$intersection_size / res$term_size
     res$term_name <- str_wrap(res$term_name, width = input$wrap_width)
     res <- res %>% arrange(desc(GeneRatio)) %>% head(input$top_n)
     res$term_name <- factor(res$term_name, levels = unique(as.character(res$term_name)))
     
-    # Plot
-    ggplot(res) +
-      geom_point(mapping = aes(x = GeneRatio, y = term_name, color = p_value_col, size = intersection_size)) +
-      ylab("Term Name") +
-      labs(size = "Intersection size", color = "Adjusted p-value") +
-      scale_color_gradient(low = input$low_color, high = input$high_color) +
-      scale_size_continuous(range = c(3, 10)) +
-      theme(
-        axis.text.y = element_text(size = input$y_axis_text_size,
-                                   face = input$y_axis_text_face,
-                                   color = "black"),
-        axis.title.y = element_text(size = 16, face = "bold", color = "grey20"),
-        axis.title.x = element_text(size = 16, face = "bold", color = "grey20")
-      )
+    # Plot based on selected type
+    if (input$plot_type == "Bubble Plot") {
+      ggplot(res) +
+        geom_point(mapping = aes(x = GeneRatio, y = term_name, color = p_value_col, size = intersection_size)) +
+        ylab("Term Name") +
+        labs(size = "Intersection size", color = "Adjusted p-value") +
+        scale_color_gradient(low = input$low_color, high = input$high_color) +
+        scale_size_continuous(range = c(3, 10)) +
+        theme(
+          axis.text.y = element_text(size = input$y_axis_text_size,
+                                     face = input$y_axis_text_face,
+                                     color = "black"),
+          axis.title.y = element_text(size = 16, face = "bold", color = "grey20"),
+          axis.title.x = element_text(size = 16, face = "bold", color = "grey20")
+        )
+    } else {  # Bar Plot
+      metric <- if (input$bar_plot_metric == "Intersection Size") {
+        "intersection_size"
+      } else {
+        "GeneRatio"
+      }
+      
+      ggplot(res) +
+        geom_bar(mapping = aes_string(x = metric, y = "term_name", fill = "p_value_col"), 
+                 stat = "identity") +
+        ylab("Term Name") +
+        xlab(if (metric == "intersection_size") "Intersection Size" else "Gene Ratio") +
+        labs(fill = "Adjusted p-value") +
+        scale_fill_gradient(low = input$low_color, high = input$high_color) +
+        theme(
+          axis.text.y = element_text(size = input$y_axis_text_size,
+                                     face = input$y_axis_text_face,
+                                     color = "black"),
+          axis.title.y = element_text(size = 16, face = "bold", color = "grey20"),
+          axis.title.x = element_text(size = 16, face = "bold", color = "grey20")
+        )
+    }
   })
   
   # Render the plot in the UI
