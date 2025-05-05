@@ -3,6 +3,7 @@ library(shinyWidgets)
 library(dplyr)
 library(ggplot2)
 library(stringr)
+library(readxl)
 
 ui <- fluidPage(
   titlePanel("g:Profiler Results Plotter - by MF"),
@@ -14,19 +15,20 @@ ui <- fluidPage(
                       p("Go to ", 
                         tags$a(href = "https://biit.cs.ut.ee/gprofiler/gost", target = "_blank", 
                                "https://biit.cs.ut.ee/gprofiler/gost"), 
-                        " and perform functional analysis on your significant DEGs. Then download results as a .csv file and input at Plot Settings Tab.")
+                        " and perform functional analysis on your significant DEGs. Then download results as a .csv or .xlsx file and input at Plot Settings Tab.")
                )
              )
     ),
     tabPanel("Plot Settings",
              sidebarLayout(
                sidebarPanel(
-                 fileInput("file", "Upload CSV File", accept = ".csv"),
+                 fileInput("file", "Upload CSV or XLSX File", accept = c(".csv", ".xlsx")),
+                 uiOutput("sheet_selector"),
                  uiOutput("term_selector"),
                  numericInput("wrap_width", "Wrap Width:", value = 30, min = 1, max = 100),
-                 numericInput("y_axis_text_size","Term name text size", value = 12),
+                 numericInput("y_axis_text_size", "Term name text size", value = 12),
                  selectInput("y_axis_text_face", "Y-Axis Text Face",
-                             choices = c("plain","italic","bold","bold.italic")),
+                             choices = c("plain", "italic", "bold", "bold.italic")),
                  numericInput("top_n", "Top N Terms to Display:", value = 15, min = 1),
                  selectInput("sort_direction", "Sort by Gene Ratio:", 
                              choices = c("Descending" = "desc", "Ascending" = "asc")),
@@ -36,11 +38,22 @@ ui <- fluidPage(
                    selectInput("bar_plot_metric", "Metric for Bar Plot:", 
                                choices = c("Intersection Size", "Gene Ratio"))
                  ),
-                 radioButtons("paper_size", "Paper Size:", choices = c("A4", "A5")),
-                 radioButtons("orientation", "Orientation:", choices = c("Portrait", "Landscape")),
+                 selectInput("gg_theme", "Select ggplot2 Theme",
+                             choices = c("Default" = "default",
+                                         "Minimal" = "theme_minimal",
+                                         "Classic" = "theme_classic",
+                                         "Light" = "theme_light",
+                                         "Dark" = "theme_dark",
+                                         "BW" = "theme_bw",
+                                         "Void" = "theme_void")),
+                 radioButtons("paper_size", "Paper Size (PDF):", choices = c("A4", "A5")),
+                 radioButtons("orientation", "Orientation (PDF):", choices = c("Portrait", "Landscape")),
                  colorPickr("low_color", "Select Low Color:", selected = "#1E90FF"),  
-                 colorPickr("high_color", "Select High Color:", selected = "#8B0000"), 
-                 downloadButton("downloadPlot", "Download Plot as PDF")
+                 colorPickr("high_color", "Select High Color:", selected = "#8B0000"),
+                 downloadButton("downloadPlot", "Download Plot as PDF"),
+                 numericInput("svg_width", "SVG Width (cm):", value = 14, min = 5),
+                 numericInput("svg_height", "SVG Height (cm):", value = 10, min = 5),
+                 downloadButton("downloadSVG", "Download Plot as SVG")
                ),
                mainPanel(
                  plotOutput("genePlot")
@@ -54,7 +67,23 @@ server <- function(input, output, session) {
   
   data <- reactive({
     req(input$file)
-    read.csv(input$file$datapath)
+    ext <- tools::file_ext(input$file$datapath)
+    if (ext == "csv") {
+      read.csv(input$file$datapath)
+    } else if (ext == "xlsx") {
+      req(input$selected_sheet)
+      read_xlsx(input$file$datapath, sheet = input$selected_sheet)
+    } else {
+      validate("Unsupported file type")
+    }
+  })
+  
+  output$sheet_selector <- renderUI({
+    req(input$file)
+    ext <- tools::file_ext(input$file$name)
+    if (ext != "xlsx") return(NULL)
+    sheets <- excel_sheets(input$file$datapath)
+    selectInput("selected_sheet", "Select Sheet:", choices = sheets)
   })
   
   output$term_selector <- renderUI({
@@ -97,13 +126,23 @@ server <- function(input, output, session) {
     res$term_name_wrapped <- str_wrap(res$term_name, width = input$wrap_width)
     res$term_name_wrapped <- factor(res$term_name_wrapped, levels = unique(res$term_name_wrapped))
     
+    theme_choice <- switch(input$gg_theme,
+                           "theme_minimal" = theme_minimal(),
+                           "theme_classic" = theme_classic(),
+                           "theme_light" = theme_light(),
+                           "theme_dark" = theme_dark(),
+                           "theme_bw" = theme_bw(),
+                           "theme_void" = theme_void(),
+                           theme_gray())
+    
     if (input$plot_type == "Bubble Plot") {
       ggplot(res) +
         geom_point(mapping = aes(x = GeneRatio, y = term_name_wrapped, color = p_value_col, size = intersection_size)) +
         ylab("Term Name") +
         labs(size = "Intersection size", color = "Adjusted p-value") +
         scale_color_gradient(low = input$low_color, high = input$high_color) +
-        scale_size_continuous(range = c(3, 10)) +
+        scale_size_continuous(range = c(3, 10), breaks = pretty(res$intersection_size, n = 4)) +
+        theme_choice +
         theme(
           axis.text.y = element_text(size = input$y_axis_text_size,
                                      face = input$y_axis_text_face,
@@ -124,6 +163,7 @@ server <- function(input, output, session) {
         xlab(if (metric == "intersection_size") "Intersection Size" else "Gene Ratio") +
         labs(fill = "Adjusted p-value") +
         scale_fill_gradient(low = input$low_color, high = input$high_color) +
+        theme_choice +
         theme(
           axis.text.y = element_text(size = input$y_axis_text_size,
                                      face = input$y_axis_text_face,
@@ -151,6 +191,17 @@ server <- function(input, output, session) {
         pdf_height <- temp
       }
       pdf(file, width = pdf_width, height = pdf_height)
+      print(genePlot())
+      dev.off()
+    }
+  )
+  
+  output$downloadSVG <- downloadHandler(
+    filename = function() {
+      paste("GeneRatio_Plot", Sys.Date(), ".svg", sep = "")
+    },
+    content = function(file) {
+      svg(file, width = input$svg_width / 2.54, height = input$svg_height / 2.54)
       print(genePlot())
       dev.off()
     }
