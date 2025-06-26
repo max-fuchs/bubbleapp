@@ -98,6 +98,8 @@ server <- function(input, output, session) {
   
   genePlot <- reactive({
     req(data())
+    input$selected_terms  # Damit Shiny die Reaktivität erkennt
+    
     res <- data()
     
     if ("adjusted_p_value" %in% names(res)) {
