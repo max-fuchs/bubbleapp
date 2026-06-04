@@ -6,6 +6,9 @@ library(stringr)
 library(readxl)
 library(scales)
 library(grid)
+library(igraph)
+library(ggraph)
+library(tidyr)
 
 ui <- fluidPage(
   titlePanel("g:Profiler Results Plotter - by MF"),
@@ -94,11 +97,47 @@ ui <- fluidPage(
           plotOutput("genePlot", height = "900px")
         )
       )
+    ),
+    tabPanel(
+      "Network Plot",
+      sidebarLayout(
+        sidebarPanel(
+          h4("DESeq2 Results"),
+          fileInput("deg_file", "Upload DESeq2 XLSX File", accept = c(".xlsx")),
+          uiOutput("deg_sheet_selector"),
+          uiOutput("deg_col_selectors"),
+          hr(),
+          h4("Term Selection"),
+          uiOutput("network_source_filter"),
+          uiOutput("network_term_selector"),
+          hr(),
+          h4("Appearance"),
+          numericInput("net_label_size", "Label size", value = 3, min = 1, max = 10, step = 0.5),
+          numericInput("net_pathway_node_size", "Pathway node size", value = 10, min = 3, max = 30),
+          numericInput("net_gene_node_size", "Gene node size", value = 4, min = 1, max = 15),
+          colorPickr("net_low_color", "Low fold change color:", selected = "#2166AC"),
+          colorPickr("net_high_color", "High fold change color:", selected = "#B2182B"),
+          colorPickr("net_mid_color", "Mid fold change color:", selected = "#F7F7F7"),
+          numericInput("net_fc_limit", "Fold change color limit (±):", value = 3, min = 0.5, max = 10, step = 0.5),
+          hr(),
+          h4("Export"),
+          radioButtons("net_paper_size", "Paper Size (PDF):", choices = c("A4", "A5")),
+          radioButtons("net_orientation", "Orientation (PDF):", choices = c("Portrait", "Landscape")),
+          downloadButton("downloadNetPDF", "Download as PDF"),
+          numericInput("net_svg_width", "SVG Width (cm):", value = 20, min = 5),
+          numericInput("net_svg_height", "SVG Height (cm):", value = 16, min = 5),
+          downloadButton("downloadNetSVG", "Download as SVG")
+        ),
+        mainPanel(
+          plotOutput("networkPlot", height = "900px")
+        )
+      )
     )
   )
 )
 
 server <- function(input, output, session) {
+  
   data <- reactive({
     req(input$file)
     ext <- tools::file_ext(input$file$datapath)
@@ -323,6 +362,233 @@ server <- function(input, output, session) {
     content = function(file) {
       svg(file, width = input$svg_width / 2.54, height = input$svg_height / 2.54)
       print(genePlot())
+      dev.off()
+    }
+  )
+  
+  deg_raw <- reactive({
+    req(input$deg_file)
+    ext <- tools::file_ext(input$deg_file$datapath)
+    validate(need(ext == "xlsx", "Please upload an XLSX file."))
+    req(input$deg_selected_sheet)
+    read_xlsx(input$deg_file$datapath, sheet = input$deg_selected_sheet)
+  })
+  
+  deg_data <- reactive({
+    req(deg_raw())
+    df <- deg_raw()
+    gene_col <- if ("external_gene_name" %in% names(df)) {
+      "external_gene_name"
+    } else {
+      req(input$deg_gene_col)
+      input$deg_gene_col
+    }
+    fc_col <- if ("log2FoldChange" %in% names(df)) {
+      "log2FoldChange"
+    } else {
+      req(input$deg_fc_col)
+      input$deg_fc_col
+    }
+    df %>%
+      rename(external_gene_name = all_of(gene_col), log2FoldChange = all_of(fc_col))
+  })
+  
+  output$deg_sheet_selector <- renderUI({
+    req(input$deg_file)
+    sheets <- excel_sheets(input$deg_file$datapath)
+    selectInput("deg_selected_sheet", "Select Sheet:", choices = sheets)
+  })
+  
+  output$deg_col_selectors <- renderUI({
+    req(deg_raw())
+    df <- deg_raw()
+    cols <- names(df)
+    ui_elements <- list()
+    if (!"external_gene_name" %in% cols) {
+      ui_elements[[length(ui_elements) + 1]] <- selectInput(
+        "deg_gene_col",
+        "Select gene name column:",
+        choices = cols,
+        selected = cols[1]
+      )
+    }
+    if (!"log2FoldChange" %in% cols) {
+      ui_elements[[length(ui_elements) + 1]] <- selectInput(
+        "deg_fc_col",
+        "Select fold change column:",
+        choices = cols,
+        selected = cols[1]
+      )
+    }
+    if (length(ui_elements) == 0) return(NULL)
+    tagList(
+      tags$hr(),
+      tags$p(tags$b("Column mapping required:"), style = "color: #c0392b;"),
+      ui_elements
+    )
+  })
+  
+  output$network_source_filter <- renderUI({
+    req(data())
+    sources <- sort(unique(data()$source))
+    pickerInput(
+      "net_source_filter",
+      "Filter by source:",
+      choices = sources,
+      selected = sources,
+      multiple = TRUE,
+      options = list(`actions-box` = TRUE)
+    )
+  })
+  
+  output$network_term_selector <- renderUI({
+    req(data(), input$net_source_filter)
+    terms <- data() %>%
+      filter(source %in% input$net_source_filter) %>%
+      arrange(adjusted_p_value) %>%
+      pull(term_name) %>%
+      str_to_sentence() %>%
+      unique()
+    pickerInput(
+      "net_selected_terms",
+      "Select terms (max 10):",
+      choices = terms,
+      multiple = TRUE,
+      selected = head(terms, 5),
+      options = list(
+        `actions-box` = TRUE,
+        `live-search` = TRUE,
+        `max-options` = 10,
+        `max-options-text` = "Max 10 terms"
+      )
+    )
+  })
+  
+  build_network_plot <- reactive({
+    req(data(), deg_data(), input$net_selected_terms)
+    validate(need(length(input$net_selected_terms) >= 1, "Please select at least one term."))
+    
+    gprofiler <- data()
+    degs <- deg_data()
+    
+    gprofiler$term_name <- str_to_sentence(gprofiler$term_name)
+    
+    selected <- gprofiler %>%
+      filter(term_name %in% input$net_selected_terms)
+    
+    validate(need(nrow(selected) > 0, "No matching terms found."))
+    validate(need("intersections" %in% names(selected), "Column 'intersections' not found. Please upload the g:Profiler file with intersections enabled."))
+    
+    edges <- selected %>%
+      rowwise() %>%
+      mutate(gene = list(trimws(strsplit(intersections, ",")[[1]]))) %>%
+      ungroup() %>%
+      tidyr::unnest(gene) %>%
+      select(term_name, gene, intersection_size, adjusted_p_value)
+    
+    pathway_nodes <- selected %>%
+      select(name = term_name, intersection_size, adjusted_p_value) %>%
+      distinct() %>%
+      mutate(node_type = "pathway", log2FoldChange = NA_real_)
+    
+    gene_nodes <- edges %>%
+      select(name = gene) %>%
+      distinct() %>%
+      left_join(
+        degs %>% select(name = external_gene_name, log2FoldChange),
+        by = "name"
+      ) %>%
+      mutate(
+        node_type = "gene",
+        intersection_size = NA_real_,
+        adjusted_p_value = NA_real_
+      )
+    
+    nodes <- bind_rows(pathway_nodes, gene_nodes)
+    
+    edge_list <- edges %>%
+      select(from = term_name, to = gene)
+    
+    g <- graph_from_data_frame(d = edge_list, vertices = nodes, directed = FALSE)
+    
+    fc_limit <- input$net_fc_limit
+    
+    p <- ggraph(g, layout = "fr") +
+      geom_edge_link(color = "grey70", alpha = 0.6, linewidth = 0.4) +
+      geom_node_point(
+        data = function(x) filter(x, node_type == "gene"),
+        aes(color = log2FoldChange),
+        size = input$net_gene_node_size
+      ) +
+      geom_node_point(
+        data = function(x) filter(x, node_type == "pathway"),
+        aes(size = intersection_size),
+        color = "#E8A838",
+        shape = 21,
+        fill = "#E8A838",
+        stroke = 1.2
+      ) +
+      geom_node_text(
+        aes(label = name),
+        size = input$net_label_size,
+        repel = TRUE,
+        max.overlaps = Inf,
+        fontface = ifelse(
+          igraph::V(g)$node_type == "pathway", "bold", "plain"
+        )
+      ) +
+      scale_color_gradient2(
+        name = "log2 Fold Change",
+        low = input$net_low_color,
+        mid = input$net_mid_color,
+        high = input$net_high_color,
+        midpoint = 0,
+        limits = c(-fc_limit, fc_limit),
+        oob = squish,
+        na.value = "grey80"
+      ) +
+      scale_size_continuous(
+        name = "Intersection size",
+        range = c(input$net_pathway_node_size * 0.6, input$net_pathway_node_size * 1.4)
+      ) +
+      theme_void() +
+      theme(
+        legend.title = element_text(face = "bold", size = 11),
+        legend.text = element_text(size = 9)
+      )
+    
+    p
+  })
+  
+  output$networkPlot <- renderPlot({
+    build_network_plot()
+  })
+  
+  output$downloadNetPDF <- downloadHandler(
+    filename = function() {
+      paste("Network_Plot", Sys.Date(), ".pdf", sep = "")
+    },
+    content = function(file) {
+      pdf_width <- if (input$net_paper_size == "A4") 8.27 else 5.83
+      pdf_height <- if (input$net_paper_size == "A4") 11.69 else 8.27
+      if (input$net_orientation == "Landscape") {
+        temp <- pdf_width
+        pdf_width <- pdf_height
+        pdf_height <- temp
+      }
+      pdf(file, width = pdf_width, height = pdf_height)
+      print(build_network_plot())
+      dev.off()
+    }
+  )
+  
+  output$downloadNetSVG <- downloadHandler(
+    filename = function() {
+      paste("Network_Plot", Sys.Date(), ".svg", sep = "")
+    },
+    content = function(file) {
+      svg(file, width = input$net_svg_width / 2.54, height = input$net_svg_height / 2.54)
+      print(build_network_plot())
       dev.off()
     }
   )
