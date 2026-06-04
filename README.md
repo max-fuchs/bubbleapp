@@ -1,6 +1,6 @@
 # g:Profiler Results Plotter
 
-This Shiny app helps visualize g:Profiler functional analysis results as bubble plots
+This Shiny app helps visualize g:Profiler functional analysis results as bubble plots, bar plots or network plots
 
 ## Instructions
 
@@ -13,7 +13,7 @@ This Shiny app helps visualize g:Profiler functional analysis results as bubble 
 - [R (version >= 4.0)](https://www.r-project.org/)
 - Shiny package
 - shinyWidgets package
-- ggplot2, dplyr, stringr packages
+- ggplot2, dplyr, stringr, readxl, scales, grid, igraph, ggraph, tidyr packages
 
 ## Installation of Required Packages
 
@@ -28,7 +28,7 @@ if (!require("BiocManager", quietly = TRUE))
 BiocManager::install(version = "3.19")
 
 # List of required packages
-packages <- c("shiny", "shinyWidgets", "dplyr", "ggplot2", "stringr")
+packages <- c("shiny", "shinyWidgets", "dplyr", "ggplot2", "stringr","readxl","scales,"grid","igraph","ggraph,"tidyr")
 
 # Check each package and install any that are missing
 packages_to_install <- packages[!(packages %in% installed.packages()[, "Package"])]
