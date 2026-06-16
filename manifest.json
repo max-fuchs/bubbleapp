@@ -2225,13 +2225,13 @@
   },
   "files": {
     "app.R": {
-      "checksum": "f8f89da55a52f94ac4bbc9090fd3f301"
+      "checksum": "8d6d713b9bc1c7d1f52ec9da8a628e1a"
     },
     "LICENSE": {
       "checksum": "e62637ea8a114355b985fd86c9ffbd6e"
     },
     "README.md": {
-      "checksum": "f8de0973ab34df71568ceecb631e2afc"
+      "checksum": "e25cf33e6ada6bcb13dca3b690962120"
     }
   },
   "users": null
