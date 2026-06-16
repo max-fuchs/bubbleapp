@@ -46,4 +46,4 @@ if (length(packages_to_install) > 0) {
 3. Run the following command to launch the app:
 
    ```r
-   shiny::runApp("path/to/bubbleapp.R")
+   shiny::runApp("path/to/app.R")
