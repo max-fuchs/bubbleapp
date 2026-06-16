@@ -39,7 +39,7 @@ if (length(packages_to_install) > 0) {
 # Note: Packages already installed will be skipped
 
 
-## Running the App
+## Running the App locally
 
 1. Clone the repository: `git clone https://github.com/your-username/bubbleapp.git` or download bubbleapp.R
 2. Open R or RStudio.
@@ -47,3 +47,7 @@ if (length(packages_to_install) > 0) {
 
    ```r
    shiny::runApp("path/to/app.R")
+
+## Running the App in the cloud (easier)
+Access via Posit Connect Cloud: https://connect.posit.cloud/max-fuchs
+
