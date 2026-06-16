@@ -1,6 +1,7 @@
 library(shiny)
 library(shinyWidgets)
 library(dplyr)
+library(bslib)
 library(ggplot2)
 library(stringr)
 library(readxl)
@@ -11,6 +12,7 @@ library(ggraph)
 library(tidyr)
 
 ui <- fluidPage(
+  theme = bs_theme(bootswatch = "superhero"),
   titlePanel("g:Profiler Results Plotter - by MF"),
   tabsetPanel(
     tabPanel(
