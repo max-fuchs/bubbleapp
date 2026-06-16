@@ -47,7 +47,7 @@ if (length(packages_to_install) > 0) {
 
    ```r
    shiny::runApp("path/to/app.R")
-
+   ``` 
 ## Running the App in the cloud (easier)
 Access via [Posit Connect Cloud](https://connect.posit.cloud/max-fuchs)
 
