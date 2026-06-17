@@ -7,6 +7,7 @@ This Shiny app helps visualize g:Profiler functional analysis results as bubble 
 1. Go to [g:Profiler](https://biit.cs.ut.ee/gprofiler/gost) and perform functional analysis on your DEGs.
 2. Download the results as a `.csv` file.
 3. Upload the file in this app to generate plots.
+4. In order to generate a network plot also add a DESeq2 results file
 
 ## Requirements
 
@@ -14,6 +15,10 @@ This Shiny app helps visualize g:Profiler functional analysis results as bubble 
 - Shiny package
 - shinyWidgets package
 - ggplot2, dplyr, stringr, readxl, scales, grid, igraph, ggraph, tidyr packages
+
+
+## Running the App in the cloud (easier but upload file size is limited)
+Access via [Posit Connect Cloud](https://connect.posit.cloud/max-fuchs)
 
 ## Installation of Required Packages
 
@@ -48,6 +53,3 @@ if (length(packages_to_install) > 0) {
    ```r
    shiny::runApp("path/to/app.R")
    ``` 
-## Running the App in the cloud (easier)
-Access via [Posit Connect Cloud](https://connect.posit.cloud/max-fuchs)
-
